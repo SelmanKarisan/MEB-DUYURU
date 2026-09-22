@@ -2,6 +2,7 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
@@ -14,7 +15,7 @@ RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 
 def send_email(title, link):
     if not SENDER_EMAIL or not SENDER_PASSWORD or not RECEIVER_EMAIL:
-        print("HATA: E-posta değişkenlerinden biri (Secrets) eksik! Lütfen GitHub Secrets alanını kontrol edin.")
+        print("HATA: E-posta değişkenlerinden biri (Secrets) eksik!")
         return
 
     subject = "🚨 MEB YYEGM Yeni Duyuru Yayınlandı!"
@@ -38,61 +39,48 @@ def send_email(title, link):
 def check_announcements():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
     try:
-        response = requests.get(URL, headers=headers, timeout=15)
-        print(f"Sayfa yanıt kodu: {response.status_code}")
+        response = requests.get(URL, headers=headers, timeout=20)
+        response.encoding = 'utf-8'
+        print(f"HTTP Yanıt Kodu: {response.status_code}")
     except Exception as e:
         print(f"Sayfaya ulaşılamadı. Hata: {e}")
         return
 
-    soup = BeautifulSoup(response.content, "html.parser")
-    
-    title_tag = soup.find("title")
-    print(f"Sayfa Başlığı: {title_tag.text.strip() if title_tag else 'Başlık bulunamadı'}")
+    soup = BeautifulSoup(response.text, "html.parser")
+    candidates = []
 
-    announcement = None
-
-    # MEB duyuru listesindeki bağlantıları arar
+    # Sayfadaki tüm linkleri tara
     for a in soup.find_all("a"):
-        href = a.get("href", "")
+        href = a.get("href", "").strip()
         text = a.get_text(strip=True)
-        
-        # Genel menü linklerini eler
-        ignore_words = ["anasayfa", "ana sayfa", "iletişim", "harita", "kategori", "yönetim", "fotoğraf", "arama"]
-        if len(text) > 8 and href:
-            if not any(word in text.lower() for word in ignore_words):
-                if any(k in href.lower() for k in ["duyuru", "icerik", "detay", "www"]):
-                    announcement = (text, href)
-                    break
 
-    # Genel filtre yakalayamazsa uzun metinli ilk bağlantıyı alır
-    if not announcement:
-        for a in soup.find_all("a"):
-            href = a.get("href", "")
-            text = a.get_text(strip=True)
-            if len(text) > 15 and href and not href.startswith("#") and not href.startswith("javascript"):
-                announcement = (text, href)
-                break
+        if not href or href.startswith("#") or href.startswith("javascript"):
+            continue
 
-    if not announcement:
-        print("Duyuru bulunamadı. Sayfada bulunan ilk 5 link örneği:")
-        for idx, a in enumerate(soup.find_all("a")[:5]):
-            print(f"{idx+1}. Metin: '{a.get_text(strip=True)}' -> Href: '{a.get('href')}'")
+        # MEB duyuruları genellikle 'icerik', 'duyuru' veya '/www/' ifadelerini içerir
+        if any(keyword in href.lower() for keyword in ["icerik", "duyuru", "/www/"]):
+            ignore_words = ["anasayfa", "kategori", "iletişim", "tümü", "devamı", "harita", "yönetim"]
+            if len(text) > 5 and not any(w in text.lower() for w in ignore_words):
+                full_url = urljoin(URL, href)
+                candidates.append((text, full_url))
+
+    print(f"Sayfada {len(candidates)} adet potansiyel duyuru bağlantısı bulundu.")
+
+    if candidates:
+        # En üstteki (en güncel) duyuruyu seç
+        latest_title, latest_href = candidates[0]
+        print(f"Bulunan En Güncel Duyuru: {latest_title}")
+        print(f"Bağlantı: {latest_href}")
+    else:
+        print("Duyuru bağlantısı ayrıştırılamadı. Sayfadaki ilk 10 link örneği:")
+        for idx, a in enumerate(soup.find_all("a")[:10]):
+            print(f"{idx+1}. Metin: '{a.get_text(strip=True)}' | Href: '{a.get('href')}'")
         return
-
-    latest_title, latest_href = announcement
-    if not latest_href.startswith("http"):
-        if latest_href.startswith("/"):
-            latest_href = f"https://yyegm.meb.gov.tr{latest_href}"
-        else:
-            latest_href = f"https://yyegm.meb.gov.tr/{latest_href}"
-
-    print(f"Tespit edilen güncel duyuru: '{latest_title}'")
-    print(f"Bağlantı: {latest_href}")
 
     last_title = ""
     if os.path.exists(STATE_FILE):
@@ -105,7 +93,7 @@ def check_announcements():
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             f.write(latest_title)
     else:
-        print("Yeni duyuru yok, kayıtlı duyuru ile aynı.")
+        print("Kayıtlı duyuru ile aynı, yeni duyuru yok.")
 
 if __name__ == "__main__":
     check_announcements()
