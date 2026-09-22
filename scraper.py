@@ -33,33 +33,47 @@ def send_email(title, link):
 
 def check_announcements():
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
 
-    response = requests.get(URL, headers=headers, timeout=15)
-    if response.status_code != 200:
-        print(f"Sayfaya ulaşılamadı. Durum Kodu: {response.status_code}")
+    try:
+        response = requests.get(URL, headers=headers, timeout=15)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Sayfaya ulaşılamadı. Hata: {e}")
         return
 
     soup = BeautifulSoup(response.content, "html.parser")
-    
-    # Sayfadaki duyuru bağlantılarını arar
-    links = soup.find_all("a")
     announcement = None
-    for link in links:
-        href = link.get("href", "")
-        text = link.get_text(strip=True)
-        if "duyuru" in href.lower() and len(text) > 5:
-            announcement = (text, href)
-            break
+
+    # Yöntem 1: MEB listelerinde genellikle ilk duyuru bir tablo (table) içindedir
+    table = soup.find("table")
+    if table:
+        for link in table.find_all("a"):
+            text = link.get_text(strip=True)
+            href = link.get("href", "")
+            if len(text) > 8 and href:
+                announcement = (text, href)
+                break
+
+    # Yöntem 2: Tablo yoksa genel içerik bağlantılarını tara
+    if not announcement:
+        for link in soup.find_all("a"):
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+            if ("icerik" in href.lower() or "duyuru" in href.lower() or "detay" in href.lower()) and len(text) > 8:
+                announcement = (text, href)
+                break
 
     if not announcement:
-        print("Duyuru bulunamadı.")
+        print("Duyuru bulunamadı. Sayfa yapısı değişmiş veya çekilememiş olabilir.")
         return
 
     latest_title, latest_href = announcement
     if not latest_href.startswith("http"):
         latest_href = f"https://yyegm.meb.gov.tr{latest_href}"
+
+    print(f"Tespit edilen güncel duyuru: {latest_title}")
 
     last_title = ""
     if os.path.exists(STATE_FILE):
@@ -67,12 +81,12 @@ def check_announcements():
             last_title = f.read().strip()
 
     if latest_title != last_title:
-        print(f"Yeni duyuru bulundu: {latest_title}")
+        print("Yeni duyuru algılandı! E-posta gönderiliyor...")
         send_email(latest_title, latest_href)
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             f.write(latest_title)
     else:
-        print("Yeni duyuru yok, sayfa güncel.")
+        print("Yeni duyuru yok, kayıtlı duyuru ile aynı.")
 
 if __name__ == "__main__":
     check_announcements()
