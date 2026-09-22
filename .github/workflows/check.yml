@@ -1,0 +1,42 @@
+name: MEB Duyuru Takip Otomasyonu
+
+on:
+  schedule:
+    # Her 30 dakikada bir otomatik çalışır
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Manuel tetikleme imkanı sağlar
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Depoyu Klonla
+        uses: actions/checkout@v4
+
+      - name: Python Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Kütüphaneleri Yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Scraper Betiğini Çalıştır
+        env:
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        run: python scraper.py
+
+      - name: Durumu Kaydet ve Push Et
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add last_announcement.txt
+          git commit -m "Chore: Son duyuru durumu güncellendi" || exit 0
+          git push
