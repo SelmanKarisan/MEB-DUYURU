@@ -13,6 +13,10 @@ SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 
 def send_email(title, link):
+    if not SENDER_EMAIL or not SENDER_PASSWORD or not RECEIVER_EMAIL:
+        print("HATA: E-posta değişkenlerinden biri (Secrets) eksik! Lütfen GitHub Secrets alanını kontrol edin.")
+        return
+
     subject = "🚨 MEB YYEGM Yeni Duyuru Yayınlandı!"
     body = f"Yeni bir duyuru tespit edildi:\n\n📌 Başlık: {title}\n🔗 Bağlantı: {link}"
 
@@ -33,47 +37,62 @@ def send_email(title, link):
 
 def check_announcements():
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
 
     try:
         response = requests.get(URL, headers=headers, timeout=15)
-        response.raise_for_status()
+        print(f"Sayfa yanıt kodu: {response.status_code}")
     except Exception as e:
         print(f"Sayfaya ulaşılamadı. Hata: {e}")
         return
 
     soup = BeautifulSoup(response.content, "html.parser")
+    
+    title_tag = soup.find("title")
+    print(f"Sayfa Başlığı: {title_tag.text.strip() if title_tag else 'Başlık bulunamadı'}")
+
     announcement = None
 
-    # Yöntem 1: MEB listelerinde genellikle ilk duyuru bir tablo (table) içindedir
-    table = soup.find("table")
-    if table:
-        for link in table.find_all("a"):
-            text = link.get_text(strip=True)
-            href = link.get("href", "")
-            if len(text) > 8 and href:
+    # MEB duyuru listesindeki bağlantıları arar
+    for a in soup.find_all("a"):
+        href = a.get("href", "")
+        text = a.get_text(strip=True)
+        
+        # Genel menü linklerini eler
+        ignore_words = ["anasayfa", "ana sayfa", "iletişim", "harita", "kategori", "yönetim", "fotoğraf", "arama"]
+        if len(text) > 8 and href:
+            if not any(word in text.lower() for word in ignore_words):
+                if any(k in href.lower() for k in ["duyuru", "icerik", "detay", "www"]):
+                    announcement = (text, href)
+                    break
+
+    # Genel filtre yakalayamazsa uzun metinli ilk bağlantıyı alır
+    if not announcement:
+        for a in soup.find_all("a"):
+            href = a.get("href", "")
+            text = a.get_text(strip=True)
+            if len(text) > 15 and href and not href.startswith("#") and not href.startswith("javascript"):
                 announcement = (text, href)
                 break
 
-    # Yöntem 2: Tablo yoksa genel içerik bağlantılarını tara
     if not announcement:
-        for link in soup.find_all("a"):
-            href = link.get("href", "")
-            text = link.get_text(strip=True)
-            if ("icerik" in href.lower() or "duyuru" in href.lower() or "detay" in href.lower()) and len(text) > 8:
-                announcement = (text, href)
-                break
-
-    if not announcement:
-        print("Duyuru bulunamadı. Sayfa yapısı değişmiş veya çekilememiş olabilir.")
+        print("Duyuru bulunamadı. Sayfada bulunan ilk 5 link örneği:")
+        for idx, a in enumerate(soup.find_all("a")[:5]):
+            print(f"{idx+1}. Metin: '{a.get_text(strip=True)}' -> Href: '{a.get('href')}'")
         return
 
     latest_title, latest_href = announcement
     if not latest_href.startswith("http"):
-        latest_href = f"https://yyegm.meb.gov.tr{latest_href}"
+        if latest_href.startswith("/"):
+            latest_href = f"https://yyegm.meb.gov.tr{latest_href}"
+        else:
+            latest_href = f"https://yyegm.meb.gov.tr/{latest_href}"
 
-    print(f"Tespit edilen güncel duyuru: {latest_title}")
+    print(f"Tespit edilen güncel duyuru: '{latest_title}'")
+    print(f"Bağlantı: {latest_href}")
 
     last_title = ""
     if os.path.exists(STATE_FILE):
