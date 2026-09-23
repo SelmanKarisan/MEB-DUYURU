@@ -3,7 +3,7 @@ name: MEB Duyuru Takip Otomasyonu
 on:
   schedule:
     # Her 30 dakikada bir otomatik çalışır
-    - cron: '*/30 * * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch: # Manuel tetikleme imkanı sağlar
 
 jobs:
