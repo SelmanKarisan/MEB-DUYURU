@@ -40,76 +40,222 @@ def send_email(title, link):
     except Exception as e:
         print(f"E-posta gönderim hatası: {e}")
 
+```python
 def check_announcements():
+    RSS_URL = "https://yyegm.meb.gov.tr/meb_iys_dosyalar/xml/rss_duyurular.xml"
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
         "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
     }
 
     try:
-        response = requests.get(URL, headers=headers, verify=False, timeout=20)
-        response.encoding = 'utf-8'
-        print(f"HTTP Yanıt Kodu: {response.status_code}")
+        response = requests.get(
+            RSS_URL,
+            headers=headers,
+            verify=False,
+            timeout=20
+        )
+
+        response.encoding = "utf-8"
+
+        print(f"RSS HTTP Yanıt Kodu: {response.status_code}")
+
+        if response.status_code != 200:
+            print("RSS sayfasına erişilemedi.")
+            return
+
     except Exception as e:
-        print(f"Sayfaya ulaşılamadı. Hata: {e}")
+        print(f"RSS sayfasına ulaşılamadı. Hata: {e}")
         return
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    # ---------------------------------------------------------
+    # RSS XML'İNİ OKU
+    # ---------------------------------------------------------
 
-    # 1. Menü, başlık, alt bilgi ve script elemanlarını sayfadan kaldır
-    for element in soup(["nav", "header", "footer", "script", "style"]):
-        element.decompose()
+    soup = BeautifulSoup(response.content, "xml")
 
-    # 2. Ana içerik alanını bul
-    main_area = (
-        soup.find("div", {"id": "icerik"}) or
-        soup.find("div", class_="content") or
-        soup.find("main") or
-        soup.find("table") or
-        soup
-    )
+    items = soup.find_all("item")
 
-    candidates = []
+    print(f"RSS içerisinde bulunan duyuru sayısı: {len(items)}")
 
-    # 3. Sadece içerik detayına giden duyuru bağlantılarını topla
-    for a in main_area.find_all("a", href=True):
-        href = a["href"].strip()
-        text = a.get_text(strip=True)
-
-        if "/icerik/" in href:
-            ignore_list = ["anasayfa", "kategori", "iletişim", "devamı", "detay", "tüm duyurular", "harita"]
-            if len(text) > 6 and not any(word in text.lower() for word in ignore_list):
-                full_url = urljoin(URL, href)
-                if not any(c[1] == full_url for c in candidates):
-                    candidates.append((text, full_url))
-
-    print(f"Bulunan geçerli duyuru sayısı: {len(candidates)}")
-
-    if candidates:
-        # Listenin en üstündeki eleman en güncel duyurudur
-        latest_title, latest_href = candidates[0]
-        print("--------------------------------------------------")
-        print("EN GÜNCEL DUYURU TESPİT EDİLDİ:")
-        print(f"Başlık : {latest_title}")
-        print(f"Bağlantı: {latest_href}")
-        print("--------------------------------------------------")
-    else:
-        print("Duyuru bulunamadı. Sayfadaki bağlantı örnekleri:")
-        for idx, a in enumerate(soup.find_all("a", href=True)[:10]):
-            print(f"{idx+1}. Metin: '{a.get_text(strip=True)}' | Href: '{a['href']}'")
+    if not items:
+        print("RSS içerisinde duyuru bulunamadı.")
         return
+
+    # ---------------------------------------------------------
+    # EN YENİ DUYURUYU AL
+    # ---------------------------------------------------------
+
+    latest_item = items[0]
+
+    title_tag = latest_item.find("title")
+    link_tag = latest_item.find("link")
+
+    if not title_tag or not link_tag:
+        print("RSS içerisindeki duyuruda başlık veya bağlantı bulunamadı.")
+        return
+
+    latest_title = title_tag.get_text(strip=True)
+    latest_href = link_tag.get_text(strip=True)
+
+    # ---------------------------------------------------------
+    # KONTROL
+    # ---------------------------------------------------------
+
+    if not latest_title or not latest_href:
+        print("Duyuru başlığı veya bağlantısı boş.")
+        return
+
+    print("--------------------------------------------------")
+    print("EN GÜNCEL DUYURU TESPİT EDİLDİ:")
+    print(f"Başlık : {latest_title}")
+    print(f"Bağlantı: {latest_href}")
+    print("--------------------------------------------------")
+
+    # ---------------------------------------------------------
+    # MEVCUT STATE SİSTEMİN
+    # ---------------------------------------------------------
 
     last_title = ""
+
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             last_title = f.read().strip()
 
     if latest_title != last_title:
+
         print("Yeni duyuru algılandı! E-posta gönderiliyor...")
+
         send_email(latest_title, latest_href)
+
         with open(STATE_FILE, "w", encoding="utf-8") as f:
             f.write(latest_title)
+
+    else:
+        print("Kayıtlı duyuru ile aynı, e-posta gönderilmedi.")
+```
+
+### Bu sürümde ne değişti?
+
+Senin kodunun:
+
+* `send_email()` fonksiyonuna **dokunmadım**
+* Gmail ayarlarına **dokunmadım**
+* `STATE_FILE` sistemine **dokunmadım**
+* `SENDER_EMAIL`, `SENDER_PASSWORD`, `RECEIVER_EMAIL` sistemine **dokunmadım**
+* `last_announcement.txt` mantığına **dokunmadım**
+* Sadece **duyuru bulma yöntemini** değiştirdim.
+
+Artık:
+
+**MEB duyurular sayfası → RSS → en üstteki `<item>` → başlık + link → `last_announcement.txt` karşılaştırması → yeni ise mevcut `send_email()`**
+
+şeklinde çalışacak.
+
+MEB'in ana sayfasında da duyuruların tarih ve başlıkla listelendiğini ve güncel duyuruların mevcut olduğunu görebiliyoruz; dolayısıyla RSS kullanmak sayfanın HTML yapısına göre `<a>` seçmeye çalışmaktan daha uygun.
+
+**Not:** RSS'i web aracında doğrudan açmaya çalıştığımda `text/xml` içerik türü nedeniyle görüntüleyemedim; ancak MEB duyurular sayfasındaki RSS bağlantısının hedefi açıkça bu XML adresi olarak görünüyor.
+
+Bir de `BeautifulSoup(response.content, "xml")` kullandığım için mevcut importlarına **ekstra bir şey eklemen gerekmiyor**; fakat ortamında `lxml` kurulu değilse XML parser hatası verebilir. GitHub Actions kullanıyorsan requirements dosyasında `beautifulsoup4` zaten varsa, gerekirse `lxml` eklenmesi gerekir.
+```python
+def check_announcements():
+    RSS_URL = "https://yyegm.meb.gov.tr/meb_iys_dosyalar/xml/rss_duyurular.xml"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
+    try:
+        response = requests.get(
+            RSS_URL,
+            headers=headers,
+            verify=False,
+            timeout=20
+        )
+
+        response.encoding = "utf-8"
+
+        print(f"RSS HTTP Yanıt Kodu: {response.status_code}")
+
+        if response.status_code != 200:
+            print("RSS sayfasına erişilemedi.")
+            return
+
+    except Exception as e:
+        print(f"RSS sayfasına ulaşılamadı. Hata: {e}")
+        return
+
+    # ---------------------------------------------------------
+    # RSS XML'İNİ OKU
+    # ---------------------------------------------------------
+
+    soup = BeautifulSoup(response.content, "xml")
+
+    items = soup.find_all("item")
+
+    print(f"RSS içerisinde bulunan duyuru sayısı: {len(items)}")
+
+    if not items:
+        print("RSS içerisinde duyuru bulunamadı.")
+        return
+
+    # ---------------------------------------------------------
+    # EN YENİ DUYURUYU AL
+    # ---------------------------------------------------------
+
+    latest_item = items[0]
+
+    title_tag = latest_item.find("title")
+    link_tag = latest_item.find("link")
+
+    if not title_tag or not link_tag:
+        print("RSS içerisindeki duyuruda başlık veya bağlantı bulunamadı.")
+        return
+
+    latest_title = title_tag.get_text(strip=True)
+    latest_href = link_tag.get_text(strip=True)
+
+    # ---------------------------------------------------------
+    # KONTROL
+    # ---------------------------------------------------------
+
+    if not latest_title or not latest_href:
+        print("Duyuru başlığı veya bağlantısı boş.")
+        return
+
+    print("--------------------------------------------------")
+    print("EN GÜNCEL DUYURU TESPİT EDİLDİ:")
+    print(f"Başlık : {latest_title}")
+    print(f"Bağlantı: {latest_href}")
+    print("--------------------------------------------------")
+
+    # ---------------------------------------------------------
+    # MEVCUT STATE SİSTEMİN
+    # ---------------------------------------------------------
+
+    last_title = ""
+
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            last_title = f.read().strip()
+
+    if latest_title != last_title:
+
+        print("Yeni duyuru algılandı! E-posta gönderiliyor...")
+
+        send_email(latest_title, latest_href)
+
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            f.write(latest_title)
+
     else:
         print("Kayıtlı duyuru ile aynı, e-posta gönderilmedi.")
 
